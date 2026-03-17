@@ -38,3 +38,4 @@ coverage/
 # Docs (keep only main README)
 *.md
 !README.md
+!docker.md
