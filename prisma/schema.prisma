@@ -23,6 +23,8 @@ model User {
   refreshTokens RefreshToken[]
   addresses    Address[]
   orders       Order[]
+  depositWallet UserDepositWallet?
+  depositTransactions DepositTransaction[]
 }
 
 // ---- Addresses ----
@@ -70,13 +72,53 @@ model Order {
   paymentMethod String
   status        String        @default("RECEIVED")
   totalAmount   Decimal       @db.Decimal(12, 2)
+  depositBase   Decimal       @default(0) @db.Decimal(12, 2)
+  depositDiscount Decimal     @default(0) @db.Decimal(12, 2)
+  depositCharge Decimal       @default(0) @db.Decimal(12, 2)
+  depositRefundedAt DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   items         OrderItem[]
+  depositTransactions DepositTransaction[]
 
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+}
+
+model DepositConfig {
+  id             String   @id @default(cuid())
+  perCanAmount   Decimal  @default(0) @db.Decimal(10, 2)
+  promoActive    Boolean  @default(false)
+  promoStartsAt  DateTime?
+  promoEndsAt    DateTime?
+  tiers          Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model UserDepositWallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DepositTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  type        String
+  amount      Decimal  @db.Decimal(12, 2)
+  note        String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model OrderItem {

@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Param,
   Body,
@@ -8,19 +9,29 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { OrdersService } from './orders.service';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { DepositsService } from '../deposits/deposits.service';
+
+interface RequestWithUser extends Request {
+  user: { id: string };
+}
 
 @ApiTags('Admin – Orders')
 @Controller('admin/orders')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @ApiBearerAuth()
 export class AdminOrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly depositsService: DepositsService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List all orders – filter by date, status, phone, time slot' })
@@ -64,5 +75,13 @@ export class AdminOrdersController {
   @ApiResponse({ status: 404, description: 'Order not found' })
   cancel(@Param('id') id: string) {
     return this.ordersService.cancel(id);
+  }
+
+  @Post(':id/return-cans')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Refund deposit after empty can return' })
+  @ApiResponse({ status: 200, description: 'Deposit refunded to customer wallet' })
+  refundDeposit(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.depositsService.refundOrderDeposit(id, req.user.id);
   }
 }

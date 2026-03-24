@@ -8,10 +8,14 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { STATUS_FLOW, OrderStatus } from './orders.constants';
+import { DepositsService } from '../deposits/deposits.service';
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly depositsService: DepositsService,
+  ) {}
 
   async create(userId: string, dto: CreateOrderDto) {
     const address = await this.prisma.address.findFirst({
@@ -29,6 +33,7 @@ export class OrdersService {
 
     const orderItems: { productId: string; quantity: number; unitPrice: Decimal }[] = [];
     let totalAmount = new Decimal(0);
+    let totalQty = 0;
 
     for (const item of dto.items) {
       const product = productMap.get(item.productId);
@@ -42,7 +47,25 @@ export class OrdersService {
       }
       orderItems.push({ productId: product.id, quantity: item.quantity, unitPrice: product.price });
       totalAmount = totalAmount.add(new Decimal(product.price).mul(item.quantity));
+      totalQty += item.quantity;
     }
+
+    const depositConfig = await this.depositsService.getRuntimeConfig();
+    const depositBase = new Decimal(depositConfig.perCanAmount).mul(totalQty);
+    const discountPercent = this.resolveTierDiscountPercent(totalQty, depositConfig.tiers, depositConfig.promoActive, depositConfig.promoStartsAt, depositConfig.promoEndsAt);
+    const depositDiscount = depositBase.mul(new Decimal(discountPercent).div(100));
+    const depositCharge = Decimal.max(new Decimal(0), depositBase.sub(depositDiscount));
+    const wallet = await this.prisma.userDepositWallet.upsert({
+      where: { userId },
+      update: {},
+      create: { userId, balance: 0 },
+    });
+    if (Number(wallet.balance) < Number(depositCharge)) {
+      throw new BadRequestException(
+        `Insufficient deposit balance. Required ${Number(depositCharge).toFixed(2)}, available ${Number(wallet.balance).toFixed(2)}. Please top-up your deposit wallet.`,
+      );
+    }
+    const finalTotalAmount = totalAmount.add(depositCharge);
 
     const [order] = await this.prisma.$transaction([
       this.prisma.order.create({
@@ -52,7 +75,10 @@ export class OrdersService {
           timeSlot: dto.timeSlot,
           paymentMethod: dto.paymentMethod,
           status: 'RECEIVED',
-          totalAmount,
+          totalAmount: finalTotalAmount,
+          depositBase,
+          depositDiscount,
+          depositCharge,
           items: {
             create: orderItems.map((i) => ({
               productId: i.productId,
@@ -69,6 +95,18 @@ export class OrdersService {
           data: { stock: { decrement: i.quantity } },
         }),
       ),
+      this.prisma.userDepositWallet.update({
+        where: { userId },
+        data: { balance: { decrement: Number(depositCharge) } },
+      }),
+      this.prisma.depositTransaction.create({
+        data: {
+          userId,
+          type: 'CHARGE',
+          amount: Number(depositCharge),
+          note: 'Deposit charged for order',
+        },
+      }),
     ]);
 
     return this.toOrderResponse(order);
@@ -167,6 +205,26 @@ export class OrdersService {
     return this.updateStatus(orderId, 'CANCELLED');
   }
 
+  private resolveTierDiscountPercent(
+    qty: number,
+    tiers: Array<{ minQty: number; discountPercent: number }>,
+    promoActive: boolean,
+    promoStartsAt: Date | null,
+    promoEndsAt: Date | null,
+  ) {
+    if (!promoActive) return 0;
+    const now = new Date();
+    if (promoStartsAt && now < promoStartsAt) return 0;
+    if (promoEndsAt && now > promoEndsAt) return 0;
+    let best = 0;
+    for (const tier of tiers) {
+      if (qty >= tier.minQty) {
+        best = Math.max(best, tier.discountPercent);
+      }
+    }
+    return best;
+  }
+
   private async restoreStock(orderId: string) {
     const items = await this.prisma.orderItem.findMany({ where: { orderId } });
     for (const item of items) {
@@ -227,6 +285,10 @@ export class OrdersService {
       paymentMethod: order.paymentMethod,
       status: order.status,
       totalAmount: Number(order.totalAmount),
+      depositBase: Number((order as { depositBase?: Decimal }).depositBase ?? 0),
+      depositDiscount: Number((order as { depositDiscount?: Decimal }).depositDiscount ?? 0),
+      depositCharge: Number((order as { depositCharge?: Decimal }).depositCharge ?? 0),
+      depositRefunded: !!(order as { depositRefundedAt?: Date | null }).depositRefundedAt,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
       address: {
