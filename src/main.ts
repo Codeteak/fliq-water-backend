@@ -4,7 +4,12 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import { SWAGGER_EXTRA_MODELS } from './common/swagger/swagger-response.dto';
-import { AuthResponseDto, OtpSentResponseDto } from './modules/auth/dto/auth-response.dto';
+import {
+  AuthResponseDto,
+  DeliveryPartnerAuthResponseDto,
+  DeliveryPartnerSessionUserDto,
+  OtpSentResponseDto,
+} from './modules/auth/dto/auth-response.dto';
 
 const LOCALHOST_ORIGINS = Array.from({ length: 6 }, (_, i) => `http://localhost:${3000 + i}`);
 
@@ -43,7 +48,8 @@ async function bootstrap() {
         'owner/admin operations, and delivery partner workflows.',
         '',
         '**Authentication** — Most routes require a JWT access token from `POST /api/auth/login` or `POST /api/auth/register`.',
-        'Send `Authorization: Bearer <accessToken>`. Owner panel may use `POST /api/auth/login-owner`.',
+        'Send `Authorization: Bearer <accessToken>`. Owner panel may use `POST /api/auth/login-owner`;',
+        'delivery partner apps use `POST /api/auth/login-delivery-partner` (**phone + password only**; rejects non-partner roles).',
         '',
         '**Roles** — `customer`, `owner`, `admin` (scoped by permissions), `deliveryPartner`.',
         '',
@@ -73,7 +79,13 @@ async function bootstrap() {
     .addTag('Delivery partners', 'Self-service API for users with role `deliveryPartner`.')
     .build();
   const document = SwaggerModule.createDocument(app, config, {
-    extraModels: [...SWAGGER_EXTRA_MODELS, AuthResponseDto, OtpSentResponseDto],
+    extraModels: [
+      ...SWAGGER_EXTRA_MODELS,
+      AuthResponseDto,
+      DeliveryPartnerAuthResponseDto,
+      DeliveryPartnerSessionUserDto,
+      OtpSentResponseDto,
+    ],
   });
   SwaggerModule.setup('api/docs', app, document, {
     customSiteTitle: 'AquaFliq API — Swagger UI',

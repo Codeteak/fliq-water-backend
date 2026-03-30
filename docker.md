@@ -40,39 +40,17 @@ docker compose down -v
 
 ## Environment variables / secrets
 
-The compose file currently defines defaults for:
+The `api` service loads **`docker/compose.env`** (tracked in the repo) so `docker compose up` works without creating extra files. It sets:
 
-- `DATABASE_URL`
-- `OWNER_SECRET`
-- `JWT_ACCESS_SECRET`
-- `JWT_REFRESH_SECRET`
-- `JWT_ACCESS_EXPIRES`, `JWT_REFRESH_EXPIRES`
+- `DATABASE_URL` (host `db`, user/password/db matching the `db` service)
+- `REDIS_URL` (host `redis`)
+- `OWNER_SECRET`, `JWT_*` — **dev placeholders only**; change them for anything beyond local use
 
-For real deployments, do **not** keep secrets in `docker-compose.yml`. Use one of these approaches:
+For real deployments, do **not** reuse those JWT/owner values. Prefer one of these:
 
-### Option A: Use an env file (local)
+### Option A: Private override file
 
-1) Create a file like `.env.docker` (don’t commit it):
-
-```env
-PORT=3000
-NODE_ENV=production
-DATABASE_URL=postgresql://postgres:postgres@db:5432/fliq_water?schema=public
-OWNER_SECRET=change-me
-JWT_ACCESS_SECRET=change-me
-JWT_REFRESH_SECRET=change-me
-JWT_ACCESS_EXPIRES=15m
-JWT_REFRESH_EXPIRES=7d
-```
-
-2) Update `docker-compose.yml` to use it, for example:
-
-```yaml
-services:
-  api:
-    env_file:
-      - .env.docker
-```
+Copy `docker/compose.env` to e.g. `.env.docker` (add to `.gitignore` if needed), edit secrets, then use a `docker-compose.override.yml` that sets `env_file: [.env.docker]` for `api`, or temporarily point `env_file` in `docker-compose.yml` to your file.
 
 ### Option B: Pass env vars at runtime
 

@@ -15,6 +15,20 @@ export class ApiErrorResponseDto {
   error: string;
 }
 
+export class ApiUnauthorizedResponseDto {
+  @ApiProperty({ example: 401, description: 'HTTP status code' })
+  statusCode: number;
+
+  @ApiProperty({
+    example: 'Unauthorized',
+    description: 'Reason such as invalid credentials, wrong role, or missing/invalid JWT',
+  })
+  message: string | string[];
+
+  @ApiProperty({ example: 'Unauthorized', description: 'Error name' })
+  error: string;
+}
+
 export class SuccessWithIdDto {
   @ApiProperty({ example: true })
   success: boolean;
@@ -570,6 +584,7 @@ export class CustomerDetailResponseDto {
 /** Register extra models with SwaggerModule.createDocument(..., { extraModels }). */
 export const SWAGGER_EXTRA_MODELS = [
   ApiErrorResponseDto,
+  ApiUnauthorizedResponseDto,
   SuccessWithIdDto,
   LogoutResponseDto,
   FeaturesListResponseDto,

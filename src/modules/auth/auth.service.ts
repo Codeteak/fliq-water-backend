@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ServiceUnavailableException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -13,7 +14,8 @@ import { RedisService } from '../../redis/redis.service';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterOwnerDto } from './dto/register-owner.dto';
 import { LoginDto } from './dto/login.dto';
-import { AuthResponseDto, OtpSentResponseDto } from './dto/auth-response.dto';
+import { DeliveryPartnerLoginDto } from './dto/delivery-partner-login.dto';
+import { AuthResponseDto, DeliveryPartnerAuthResponseDto, OtpSentResponseDto } from './dto/auth-response.dto';
 
 const DB_UNAVAILABLE_MSG =
   'Database is not available. Set DATABASE_URL in .env and run: npx prisma migrate dev';
@@ -123,6 +125,52 @@ export class AuthService {
     return response;
   }
 
+  async loginDeliveryPartner(dto: DeliveryPartnerLoginDto): Promise<DeliveryPartnerAuthResponseDto> {
+    const { phone, password } = dto;
+
+    try {
+      const user = await this.prisma.user.findUnique({ where: { phone } });
+      if (!user) {
+        throw new UnauthorizedException('Invalid phone or password');
+      }
+      if (!user.passwordHash) {
+        throw new UnauthorizedException('Invalid phone or password');
+      }
+      const match = await bcrypt.compare(password, user.passwordHash);
+      if (!match) {
+        throw new UnauthorizedException('Invalid phone or password');
+      }
+      if (user.role !== 'deliveryPartner') {
+        throw new UnauthorizedException('Delivery partner credentials required');
+      }
+
+      const partner = await this.prisma.deliveryPartner.findUnique({ where: { userId: user.id } });
+      if (!partner) {
+        throw new InternalServerErrorException('Delivery partner profile missing for this account');
+      }
+
+      const tokens = await this.buildTokens(user.id, user.phone);
+      return {
+        ...tokens,
+        user: {
+          id: user.id,
+          phone: user.phone,
+          name: user.name,
+          role: 'deliveryPartner' as const,
+        },
+        deliveryPartner: this.serializeDeliveryPartner(partner),
+      };
+    } catch (err) {
+      if (err instanceof UnauthorizedException || err instanceof BadRequestException) {
+        throw err;
+      }
+      if (this.isDbUnavailableError(err)) {
+        throw new ServiceUnavailableException(DB_UNAVAILABLE_MSG);
+      }
+      throw err;
+    }
+  }
+
   async registerOwner(dto: RegisterOwnerDto, ownerSecretFromHeader: string): Promise<AuthResponseDto> {
     const existingOwner = await this.prisma.user.findFirst({
       where: { role: 'owner' },
@@ -202,6 +250,34 @@ export class AuthService {
       name: user.name,
       role: user.role,
       ...(permissions.length > 0 && { permissions }),
+    };
+  }
+
+  private serializeDeliveryPartner(p: {
+    id: string;
+    userId: string;
+    name: string;
+    phone: string;
+    vehicleType: string | null;
+    vehicleNumber: string | null;
+    isAvailable: boolean;
+    currentLat: { toString(): string } | null;
+    currentLng: { toString(): string } | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: p.id,
+      userId: p.userId,
+      name: p.name,
+      phone: p.phone,
+      vehicleType: p.vehicleType,
+      vehicleNumber: p.vehicleNumber,
+      isAvailable: p.isAvailable,
+      currentLat: p.currentLat != null ? Number(p.currentLat) : null,
+      currentLng: p.currentLng != null ? Number(p.currentLng) : null,
+      createdAt: p.createdAt.toISOString(),
+      updatedAt: p.updatedAt.toISOString(),
     };
   }
 

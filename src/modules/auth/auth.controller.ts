@@ -12,10 +12,19 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterOwnerDto } from './dto/register-owner.dto';
 import { LoginDto } from './dto/login.dto';
+import { DeliveryPartnerLoginDto } from './dto/delivery-partner-login.dto';
 import { RefreshTokenDto } from './dto/refresh.dto';
 import { LogoutDto } from './dto/logout.dto';
-import { AuthResponseDto, OtpSentResponseDto } from './dto/auth-response.dto';
-import { ApiErrorResponseDto, LogoutResponseDto } from '../../common/swagger/swagger-response.dto';
+import {
+  AuthResponseDto,
+  DeliveryPartnerAuthResponseDto,
+  OtpSentResponseDto,
+} from './dto/auth-response.dto';
+import {
+  ApiErrorResponseDto,
+  ApiUnauthorizedResponseDto,
+  LogoutResponseDto,
+} from '../../common/swagger/swagger-response.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -54,9 +63,9 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Customer or staff login',
+    summary: 'Customer, staff, or delivery partner login',
     description:
-      'Authenticate with **phone + password** or **phone + OTP**. Returns short-lived `accessToken`, rotating `refreshToken`, `expiresIn` (seconds), and `user` including `role` and `permissions` (admins).',
+      'Authenticate with **phone + password** or **phone + OTP**. Returns short-lived `accessToken`, rotating `refreshToken`, `expiresIn` (seconds), and `user` including `role` and `permissions` (admins). For partner-only apps, prefer **`POST /auth/login-delivery-partner`** so non-partner accounts receive 401.',
   })
   @ApiOkResponse({
     description: 'Authenticated session.',
@@ -82,6 +91,32 @@ export class AuthController {
   })
   async loginOwner(@Body() dto: LoginDto): Promise<AuthResponseDto> {
     return this.authService.loginOwner(dto);
+  }
+
+  @Post('login-delivery-partner')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delivery partner login',
+    description:
+      '**Phone + password only** (no OTP). Succeeds only when the account role is `deliveryPartner`. Use for the partner app so customer or staff tokens are not issued from the wrong entry point.',
+  })
+  @ApiOkResponse({
+    description:
+      'Delivery partner session. `user.role` is always `deliveryPartner`; `permissions` are not included (admin-only field).',
+    type: DeliveryPartnerAuthResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error (e.g. missing password, phone not 10 digits).',
+    type: ApiErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid phone/password, or account exists but is not a delivery partner.',
+    type: ApiUnauthorizedResponseDto,
+  })
+  async loginDeliveryPartner(@Body() dto: DeliveryPartnerLoginDto): Promise<DeliveryPartnerAuthResponseDto> {
+    return this.authService.loginDeliveryPartner(dto);
   }
 
   @Post('refresh')
