@@ -291,6 +291,38 @@ export class OrdersService {
     return this.toOrderResponse(updated, true);
   }
 
+  async partnerConfirmCansReceived(
+    partnerUserId: string,
+    orderId: string,
+    deliveryNotes?: string,
+  ) {
+    const partner = await this.prisma.deliveryPartner.findUnique({ where: { userId: partnerUserId } });
+    if (!partner) throw new NotFoundException('Delivery partner not found');
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.deliveryPartnerId !== partner.id) {
+      throw new ForbiddenException('This order is not assigned to you');
+    }
+    if (order.status === 'CANCELLED') {
+      throw new BadRequestException('Order is cancelled');
+    }
+    if (order.deliveryStatus !== 'DELIVERED') {
+      throw new BadRequestException(
+        `Can receive confirmation is allowed only after delivery. Current delivery status: ${order.deliveryStatus}`,
+      );
+    }
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        deliveryStatus: 'CANS_RETURNED',
+        ...(deliveryNotes !== undefined ? { deliveryNotes } : {}),
+      },
+      include: orderFullInclude,
+    });
+    await this.notifyOrderChanged(orderId);
+    return this.toOrderResponse(updated, true);
+  }
+
   async notifyOrderChanged(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },

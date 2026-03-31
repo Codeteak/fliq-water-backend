@@ -24,6 +24,7 @@ import { DeliveryPartnersService } from './delivery-partners.service';
 import { OrdersService } from '../orders/orders.service';
 import { UpdateMyDeliveryPartnerDto } from './dto/update-my-delivery-partner.dto';
 import { UpdatePartnerDeliveryStatusDto } from './dto/update-partner-delivery-status.dto';
+import { ConfirmCansReceivedDto } from './dto/confirm-cans-received.dto';
 import { ApiErrorResponseDto, DeliveryPartnerResponseDto, OrderResponseDto } from '../../common/swagger/swagger-response.dto';
 
 interface RequestWithUser extends Request {
@@ -105,5 +106,26 @@ export class DeliveryPartnersController {
       dto.deliveryStatus,
       dto.deliveryNotes,
     );
+  }
+
+  @Patch('orders/:orderId/confirm-cans-received')
+  @UseGuards(JwtAuthGuard, DeliveryPartnerGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm cans received from customer',
+    description:
+      'Dedicated confirmation endpoint for partner app. Allowed only when current `deliveryStatus` is `DELIVERED`; sets `deliveryStatus` to `CANS_RETURNED`.',
+  })
+  @ApiParam({ name: 'orderId', description: 'Order UUID' })
+  @ApiOkResponse({ description: 'Updated order snapshot with `deliveryStatus: CANS_RETURNED`.', type: OrderResponseDto })
+  @ApiResponse({ status: 400, description: 'Order not in DELIVERED step or not assignee.', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 404, type: ApiErrorResponseDto })
+  confirmCansReceived(
+    @Req() req: RequestWithUser,
+    @Param('orderId') orderId: string,
+    @Body() dto: ConfirmCansReceivedDto,
+  ) {
+    return this.ordersService.partnerConfirmCansReceived(req.user.id, orderId, dto.deliveryNotes);
   }
 }
